@@ -1,6 +1,6 @@
 module Savefig
-using Plots, PGFPlots, Colors
-
+using Plots, PGFPlots, Colors, TikzPictures
+using Plots: Subplot
 color_palette = [
     RGB(0.1399999, 0.1399999, 0.4),
     RGB(1.0, 0.7075, 0.35),
@@ -24,17 +24,30 @@ function replace_a_bunch_of_stuff(filename, replacements)
     mv(temppath, filename, force=true)
 end
 
-function set_positions(filename)
+tt(x) = permutedims(x,(2,1))
+function set_positions(filename, layout)
     temppath, temp = mktemp()
     fignum = 0
+    grid = size(layout)
+    indices = tt(CartesianIndices(grid))
+    named = Int[]
     for line in eachline(filename)
         if occursin("\\begin{axis}[", line)
             fignum += 1
+            tt(layout.grid)[fignum] isa Subplot || (fignum += 1)
             println(temp, line)
             println(temp, "name = fig$(fignum),")
+            push!(named, fignum)
             fignum == 1 && continue
-            println(temp, "at=(fig$(fignum-1).below south west),")
-            println(temp, "anchor=above north west,")
+            if (indices[fignum][1] == 1 && (fignum-1) ∈ named) || (fignum-grid[1]) ∉ named # The leftmost, anchor north #
+                println(temp, "at=(fig$(fignum-1).right of south east),")
+                println(temp, "anchor=left of south west,")
+                println(temp, "xshift=3mm,")
+            else # otherwise anchor west
+                println(temp, "at=(fig$(fignum-grid[1]).below south west),")
+                println(temp, "anchor=above north west,")
+                println(temp, "yshift=-3mm,")
+            end
             continue
         end
         occursin(Char(8), line) && continue
@@ -62,9 +75,8 @@ r"xticklabels\s?=\s?\{.*?\}," => "",
 r"yticklabels\s?=\s?\{.*?\}," => "",
 ]
 
-function savefig_pgfplots(filename, axis="")
+function savefig_pgfplots(filename, axis="", fig = current())
 
-    fig = current()
     layout = size(fig.layout.grid)
     pgffig = fig.o
     subfig = Iterators.product(0:layout[2]-1, 0:layout[1]-1)
@@ -80,6 +92,20 @@ function savefig_pgfplots(filename, axis="")
     # replace_a_bunch_of_stuff(filename, replacements_pgfplots)
 end
 
+# function savefig_pgfplots(filename, axis="")
+#     fig = current()
+#     layout = size(fig.layout.grid)
+#     pgffig = fig.o
+#     subfig = Iterators.product(0:layout[2]-1, 0:layout[1]-1)
+#     for (f,sfig) in zip(pgffig, subfig)
+#         f.style = axis
+#         f.height = "\\figureheight"
+#         f.width = "\\figurewidth"
+#     end
+#     tikzfig = PGFPlots.plot(pgffig)
+#     TikzPictures.save(TEX(filename, include_preamble=false), tikzfig) # Goingthrough TikzPictures manually is required. If saved using PGFPlots.save the subplots layout is completely screwed up
+#     set_positions(filename, fig.layout)
+# end
 
 
 using PyCall
@@ -96,6 +122,7 @@ r"xtick\s?=\s?\{.*?\}," => Char(8),
 r"ytick\s?=\s?\{.*?\}," => Char(8),
 r"xticklabels\s?=\s?\{.*?\}," => Char(8),
 r"yticklabels\s?=\s?\{.*?\}," => Char(8),
+"axis line style={none}," => Char(8),
 ]
 """
 `savefig_pyplot(filename, fig = current().o; extra::Vector{String})`
@@ -103,7 +130,7 @@ r"yticklabels\s?=\s?\{.*?\}," => Char(8),
 function savefig_pyplot(filename, fig = current(); kwargs...)
     tikzplotlib.save(filename,fig.o; figureheight = "\\figureheight", figurewidth = "\\figurewidth", kwargs...)
     replace_a_bunch_of_stuff(filename, replacements_pyplot)
-    set_positions(filename)
+    set_positions(filename, fig.layout)
 end
 
 end # module
